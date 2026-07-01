@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Multi-Digit Mod 10 Trainer</title>
+<style>
+  :root {
+    --bg: #f4f4f4;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --key: #e5e7eb;
+    --key-hover: #d1d5db;
+    --good: #15803d;
+    --bad: #b91c1c;
+    --shadow: 0 10px 28px rgba(0,0,0,.12);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  .card {
+    width: min(94vw, 560px);
+    background: var(--card);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    padding: 20px;
+  }
+
+  .toprow {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 12px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .stats {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .controls button {
+    border: none;
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: #eef2ff;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .controls button:hover { filter: brightness(0.97); }
+
+  .problem {
+    font-family: "Courier New", Courier, monospace;
+    font-size: clamp(1.7rem, 5vw, 2.7rem);
+    line-height: 1.15;
+    white-space: pre;
+    text-align: center;
+    margin: 14px 0 6px;
+    letter-spacing: .04em;
+  }
+
+  .answer {
+    font-family: "Courier New", Courier, monospace;
+    font-size: clamp(1.7rem, 5vw, 2.7rem);
+    line-height: 1.15;
+    text-align: center;
+    min-height: 1.3em;
+    margin: 0 0 10px;
+    letter-spacing: .08em;
+  }
+
+  .cursor {
+    display: inline-block;
+    transform: translateY(1px);
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+
+  .feedback {
+    min-height: 1.4em;
+    text-align: center;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+
+  #keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    user-select: none;
+  }
+
+  #keypad button {
+    border: none;
+    border-radius: 14px;
+    background: var(--key);
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    padding: 18px 0;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  #keypad button:hover { background: var(--key-hover); }
+  #keypad button:disabled { opacity: .5; cursor: default; }
+
+  .zero {
+    grid-column: 2;
+  }
+
+  .small {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="toprow">
+      <div class="stats">
+        <div>Correct: <span id="correct">0</span></div>
+        <div>Total: <span id="total">0</span></div>
+        <div>Streak: <span id="streak">0</span></div>
+      </div>
+      <div class="controls">
+        <span>Digits:</span>
+        <button id="lenBtn" type="button">5</button>
+        <button id="resetBtn" type="button">Reset progress</button>
+      </div>
+    </div>
+
+    <div id="problem" class="problem"></div>
+    <div id="answer" class="answer"></div>
+    <div id="feedback" class="feedback"></div>
+
+    <div id="keypad"></div>
+    <div class="small">Tap each digit of the result, modulo 10, with no carrying.</div>
+  </div>
+
+<script>
+(() => {
+  const LS_WEIGHTS = "mod10_weights_v1";
+  const LS_LENGTH = "mod10_length_v1";
+
+  const state = {
+    len: 5,
+    weights: Array.from({ length: 10 }, () => Array(10).fill(1)),
+    top: [],
+    bottom: [],
+    ans: [],
+    pos: 0,
+    accepting: true,
+    correct: 0,
+    total: 0,
+    streak: 0
+  };
+
+  const el = {
+    correct: document.getElementById("correct"),
+    total: document.getElementById("total"),
+    streak: document.getElementById("streak"),
+    problem: document.getElementById("problem"),
+    answer: document.getElementById("answer"),
+    feedback: document.getElementById("feedback"),
+    keypad: document.getElementById("keypad"),
+    lenBtn: document.getElementById("lenBtn"),
+    resetBtn: document.getElementById("resetBtn")
+  };
+
+  function canonical(a, b) {
+    return a <= b ? [a, b] : [b, a];
+  }
+
+  function getWeight(a, b) {
+    const [x, y] = canonical(a, b);
+    return state.weights[x][y];
+  }
+
+  function setWeight(a, b, value) {
+    const [x, y] = canonical(a, b);
+    state.weights[x][y] = Math.max(1, value);
+  }
+
+  function saveWeights() {
+    try {
+      localStorage.setItem(LS_WEIGHTS, JSON.stringify(state.weights));
+      localStorage.setItem(LS_LENGTH, String(state.len));
+    } catch (_) {}
+  }
+
+  function loadProgress() {
+    try {
+      const rawW = localStorage.getItem(LS_WEIGHTS);
+      const rawL = localStorage.getItem(LS_LENGTH);
+
+      if (rawW) {
+        const parsed = JSON.parse(rawW);
+        if (Array.isArray(parsed) && parsed.length === 10) {
+          state.weights = parsed.map(row =>
+            Array.isArray(row) && row.length === 10
+              ? row.map(v => Number.isFinite(+v) && +v > 0 ? +v : 1)
+              : Array(10).fill(1)
+          );
+        }
+      }
+
+      if (rawL) {
+        const n = parseInt(rawL, 10);
+        if (Number.isInteger(n) && n >= 2 && n <= 10) state.len = n;
+      }
+    } catch (_) {}
+  }
+
+  function choosePair() {
+    let total = 0;
+
+    for (let a = 0; a < 10; a++) {
+      for (let b = a; b < 10; b++) {
+        let w = state.weights[a][b];
+        if (a + b >= 10) w *= 3; // keep two-digit sums frequent
+        total += w;
+      }
+    }
+
+    let r = Math.random() * total;
+
+    for (let a = 0; a < 10; a++) {
+      for (let b = a; b < 10; b++) {
+        let w = state.weights[a][b];
+        if (a + b >= 10) w *= 3;
+        r -= w;
+        if (r <= 0) {
+          return Math.random() < 0.5 ? [a, b] : [b, a];
+        }
+      }
+    }
+
+    return [0, 0];
+  }
+
+  function makeProblem() {
+    state.top = [];
+    state.bottom = [];
+    state.ans = [];
+    state.pos = 0;
+    state.accepting = true;
+
+    for (let i = 0; i < state.len; i++) {
+      const [a, b] = choosePair();
+      state.top.push(a);
+      state.bottom.push(b);
+      state.ans.push((a + b) % 10);
+    }
+
+    el.problem.textContent =
+      " " + state.top.join("") + "\n+" + state.bottom.join("") + "\n" + "-".repeat(state.len + 1);
+
+    renderAnswer();
+    el.feedback.textContent = "";
+    el.feedback.className = "feedback";
+  }
+
+  function renderAnswer(extraHTML = "") {
+    const typed = state.ans.slice(0, state.pos).join("");
+    el.answer.innerHTML = extraHTML + typed + '<span class="cursor">▌</span>';
+  }
+
+  function updateStats() {
+    el.correct.textContent = state.correct;
+    el.total.textContent = state.total;
+    el.streak.textContent = state.streak;
+  }
+
+  function nextLenText() {
+    el.lenBtn.textContent = String(state.len);
+  }
+
+  function lockButtons(disabled) {
+    el.keypad.querySelectorAll("button").forEach(btn => {
+      btn.disabled = disabled;
+    });
+  }
+
+  function handleDigit(d) {
+    if (!state.accepting) return;
+
+    const expected = state.ans[state.pos];
+
+    if (d === expected) {
+      state.pos++;
+      renderAnswer();
+
+      if (state.pos === state.len) {
+        state.accepting = false;
+        state.correct++;
+        state.total++;
+        state.streak++;
+
+        for (let i = 0; i < state.len; i++) {
+          setWeight(state.top[i], state.bottom[i], getWeight(state.top[i], state.bottom[i]) * 0.9);
+        }
+        saveWeights();
+        updateStats();
+
+        el.feedback.textContent = "Correct";
+        el.feedback.className = "feedback good";
+        lockButtons(true);
+
+        setTimeout(() => {
+          lockButtons(false);
+          makeProblem();
+        }, 500);
+      }
+    } else {
+      state.accepting = false;
+      state.total++;
+      state.streak = 0;
+
+      const missedTop = state.top[state.pos];
+      const missedBottom = state.bottom[state.pos];
+      setWeight(missedTop, missedBottom, getWeight(missedTop, missedBottom) + 3);
+      saveWeights();
+      updateStats();
+
+      const typed = state.ans.slice(0, state.pos).join("");
+      el.answer.innerHTML = typed + '<span class="bad">' + expected + '</span>';
+      el.feedback.textContent = `Wrong, expected ${expected}`;
+      el.feedback.className = "feedback bad";
+      lockButtons(true);
+
+      setTimeout(() => {
+        lockButtons(false);
+        makeProblem();
+      }, 900);
+    }
+  }
+
+  function buildKeypad() {
+    const order = [7, 8, 9, 4, 5, 6, 1, 2, 3];
+    order.forEach(n => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = String(n);
+      b.addEventListener("click", () => handleDigit(n));
+      el.keypad.appendChild(b);
+    });
+
+    const z = document.createElement("button");
+    z.type = "button";
+    z.textContent = "0";
+    z.className = "zero";
+    z.addEventListener("click", () => handleDigit(0));
+    el.keypad.appendChild(z);
+  }
+
+  function resetProgress() {
+    state.weights = Array.from({ length: 10 }, () => Array(10).fill(1));
+    state.correct = 0;
+    state.total = 0;
+    state.streak = 0;
+    saveWeights();
+    updateStats();
+    makeProblem();
+  }
+
+  el.lenBtn.addEventListener("click", () => {
+    state.len = state.len >= 10 ? 2 : state.len + 1;
+    nextLenText();
+    saveWeights();
+    makeProblem();
+  });
+
+  el.resetBtn.addEventListener("click", resetProgress);
+
+  loadProgress();
+  nextLenText();
+  buildKeypad();
+  updateStats();
+  makeProblem();
+})();
+</script>
+</body>
+</html>
